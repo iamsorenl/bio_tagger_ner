@@ -1,18 +1,10 @@
 import random
 from conlleval import evaluate as conllevaluate
+import os
 
 directory = 'data'
-START = '<START>'
-STOP = '<STOP>'
 
-def backtrack(viterbi_matrix, tagset, max_tag):
-    tags = []
-    for k in reversed(range(len(viterbi_matrix))):
-        last_max_tag_idx = tagset.index(max_tag)
-        viterbi_list = viterbi_matrix[k]
-        max_tag, _ = viterbi_list[last_max_tag_idx]
-        tags = [max_tag] + tags
-    return tags
+random.seed(1234)
 
 def decode(input_length, tagset, score):
     """
@@ -24,48 +16,64 @@ def decode(input_length, tagset, score):
     :return: Array strings of length input_length, which is the highest scoring tag sequence including <START> and <STOP>
     """
     # Look at the function compute_score for an example of how the tag sequence should be scored
-    tags = []
-    viterbi_matrix = []
 
-    # initial step
-    initial_list = []
+    # Initialize DP table and backpointer table
+    V = [{} for _ in range(input_length)]  # DP table to store best scores
+    backpointer = [{} for _ in range(input_length)]  # To track best previous tags
+
+    # Initialize base case (Start state)
     for tag in tagset:
-        tag_score = score(tag, START, 1)
-        initial_list.append((START, tag_score))
-    viterbi_matrix.append(initial_list)
+        V[1][tag] = score(tag, "<START>", 1)  # Score transition from <START> to first tag
+        backpointer[1][tag] = "<START>"  # <START> is the previous tag for the first token
 
-    # recursion step
-    for t in range(2, input_length - 1):
+    # Recursion - Fill DP table
+    for i in range(2, input_length - 1):  # Iterate over positions (excluding <START> and <STOP>)
+        for cur_tag in tagset:
+            best_prev_tag = None
+            best_score = float('-inf')
 
-        viterbi_list = []
-        for tag in tagset:
-            # max() and argmax()
-            max_tag = None
-            max_score = float("-inf")
+            # Find the best previous tag
             for prev_tag in tagset:
-                last_viterbi_list = viterbi_matrix[t - 2]
-                prev_tag_idx = tagset.index(prev_tag)
-                last_score = last_viterbi_list[prev_tag_idx][1]
-                score = score(tag, prev_tag, t) + last_score
-                if score > max_score:
-                    max_score = score
-                    max_tag = prev_tag
-            viterbi_list.append((max_tag, score))
-        viterbi_matrix.append(viterbi_list)
-    # termination step
-    tags = [STOP] + tags
+                if prev_tag in V[i - 1]:  # Ensure previous tag exists in DP table
+                    new_score = V[i - 1][prev_tag] + score(cur_tag, prev_tag, i)
+                    if new_score > best_score:
+                        best_score = new_score
+                        best_prev_tag = prev_tag
 
-    # calculate the max tag
-    last_viterbi_list = []
-    for tag in tagset:
-        stop_score = score(STOP, tag, input_length - 1)
-        prev_score = viterbi_matrix[-1][tagset.index(tag)][1]
-        score = stop_score + prev_score
-        last_viterbi_list.append((tag, score))
-    max_tag, _ = max(last_viterbi_list, key=lambda tuple: tuple[1])
+            # Store best score and backpointer
+            if best_prev_tag is not None:  # Avoid storing invalid states
+                V[i][cur_tag] = best_score
+                backpointer[i][cur_tag] = best_prev_tag
 
-    tags = backtrack(viterbi_matrix, tagset, max_tag) + [max_tag] + tags
-    return tags
+    # Transition to STOP state
+    best_final_tag = None
+    best_final_score = float('-inf')
+
+    for prev_tag in tagset:
+        if prev_tag in V[input_length - 2]:  # Ensure last word has a valid tag
+            final_score = V[input_length - 2][prev_tag] + score("<STOP>", prev_tag, input_length - 1)
+            if final_score > best_final_score:
+                best_final_score = final_score
+                best_final_tag = prev_tag
+
+    # Handle edge case where no best final tag was found
+    if best_final_tag is None:
+        best_final_tag = random.choice(tagset)  # Default to a random tag to prevent errors
+
+    # Backtrace to find the best sequence
+    best_sequence = ["<STOP>"]  # Start with STOP tag
+    best_sequence.insert(0, best_final_tag)  # Add the best final tag
+
+    for i in range(input_length - 2, 1, -1):  # Reverse loop to reconstruct path
+        if best_sequence[0] in backpointer[i]:  # Ensure the backpointer exists
+            best_sequence.insert(0, backpointer[i][best_sequence[0]])
+        else:
+            best_sequence.insert(0, random.choice(tagset))  # Handle missing backpointers safely
+
+    # Add START at the beginning
+    best_sequence.insert(0, "<START>")
+
+    return best_sequence
 
 def compute_score(tag_seq, input_length, score):
     """
@@ -80,7 +88,6 @@ def compute_score(tag_seq, input_length, score):
     for i in range(1, input_length):
         total_score += score(tag_seq[i], tag_seq[i - 1], i)
     return total_score
-
 
 def compute_features(tag_seq, input_length, features):
     """
@@ -130,8 +137,24 @@ def sgd(training_size, epochs, gradient, parameters, training_observer):
     # Look at the FeatureVector object.  You'll want to use the function times_plus_equal to update the
     # parameters.
     # To implement early stopping you can call the function training_observer at the end of each epoch.
-    return
 
+    for epoch in range(epochs):
+        print(f"Epoch {epoch+1}/{epochs}...")
+
+        # Shuffle the training data order for better learning
+        indices = list(range(training_size))
+        random.shuffle(indices)
+
+        # Perform updates on each training example
+        for i in indices:
+            grad = gradient(i)  # Compute gradient for example i
+            parameters.times_plus_equal(1.0, grad)  # Update parameters
+
+        # Evaluate the model at the end of the epoch
+        f1 = training_observer(epoch, parameters)
+        print(f"Epoch {epoch+1} completed. Dev F1 Score: {f1:.4f}")
+
+    return parameters  # Return the final trained parameters
 
 def train(data, feature_names, tagset, epochs):
     """
@@ -185,7 +208,6 @@ def train(data, feature_names, tagset, epochs):
 
     return sgd(len(data), epochs, perceptron_gradient, parameters, training_observer)
 
-
 def predict(inputs, input_len, parameters, feature_names, tagset):
     """
 
@@ -202,7 +224,6 @@ def predict(inputs, input_len, parameters, feature_names, tagset):
         return parameters.dot_product(features.compute_features(cur_tag, pre_tag, i))
 
     return decode(input_len, tagset, score)
-
 
 def make_data_point(sent):
     """
@@ -228,8 +249,9 @@ def read_data(filename):
     :param filename: String
     :return: Array of dictionaries.  Each dictionary has the format returned by the make_data_point function.
     """
+    full_path = os.path.join(directory, filename)
     data = []
-    with open(filename, 'r') as f:
+    with open(full_path, 'r') as f:
         sent = []
         for line in f.readlines():
             if line.strip():
@@ -324,7 +346,6 @@ def test_decoder():
     print('Max score should be = 14')
     print('Max score = '+str(compute_score(predicted_tag_seq, 4, score)))
 
-
 def main_predict(data_filename, model_filename):
     """
     Main function to make predictions.
@@ -344,7 +365,6 @@ def main_predict(data_filename, model_filename):
     evaluate(data, parameters, feature_names, tagset)
 
     return
-
 
 def main_train():
     """
@@ -368,7 +388,6 @@ def main_train():
     parameters.write_to_file('model')
 
     return
-
 
 class Features(object):
     def __init__(self, inputs, feature_names):
@@ -417,7 +436,6 @@ class FeatureVector(object):
         for key, value in v2.fdict.items():
             self.fdict[key] = scalar * value + self.fdict.get(key, 0)
 
-
     def dot_product(self, v2):
         """
         Computes the dot product between self and v2.  It is more efficient for v2 to be the smaller vector (fewer
@@ -440,7 +458,6 @@ class FeatureVector(object):
         with open(filename, 'w', encoding='utf-8') as f:
             for key, value in self.fdict.items():
                 f.write('{} {}\n'.format(key, value))
-
 
     def read_from_file(self, filename):
         """
