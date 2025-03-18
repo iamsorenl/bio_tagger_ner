@@ -2,8 +2,11 @@ import random
 from conlleval import evaluate as conllevaluate
 
 directory = 'data'
+random.seed(1234)
 START = '<START>'
 STOP = '<STOP>'
+EPOCHS = 3
+EARLY_STOPPING_LIMIT = 3
 
 def backtrack(viterbi_matrix, tagset, max_tag):
     tags = []
