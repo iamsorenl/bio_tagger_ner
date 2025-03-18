@@ -15,54 +15,44 @@ def backtrack(viterbi_matrix, tagset, max_tag):
     return tags
 
 def decode(input_length, tagset, score):
-    """
-    Compute the highest scoring sequence according to the scoring function.
-    :param input_length: int. number of tokens in the input including <START> and <STOP>
-    :param tagset: Array of strings, which are the possible tags.  Does not have <START>, <STOP>
-    :param score: function from current_tag (string), previous_tag (string), i (int) to the score.  i=0 points to
-        <START> and i=1 points to the first token. i=input_length-1 points to <STOP>
-    :return: Array strings of length input_length, which is the highest scoring tag sequence including <START> and <STOP>
-    """
-    # Look at the function compute_score for an example of how the tag sequence should be scored
     tags = []
     viterbi_matrix = []
 
-    # initial step
+    # Initial step
     initial_list = []
     for tag in tagset:
-        tag_score = score(tag, START, 1)
+        tag_score = score(tag, START, 1)  # Use different name to avoid conflict
         initial_list.append((START, tag_score))
     viterbi_matrix.append(initial_list)
 
-    # recursion step
+    # Recursion step
     for t in range(2, input_length - 1):
-
         viterbi_list = []
         for tag in tagset:
-            # max() and argmax()
             max_tag = None
             max_score = float("-inf")
             for prev_tag in tagset:
                 last_viterbi_list = viterbi_matrix[t - 2]
                 prev_tag_idx = tagset.index(prev_tag)
                 last_score = last_viterbi_list[prev_tag_idx][1]
-                score = score(tag, prev_tag, t) + last_score
-                if score > max_score:
-                    max_score = score
+                tag_score = score(tag, prev_tag, t) + last_score  # Use 'tag_score' instead of 'score'
+                if tag_score > max_score:
+                    max_score = tag_score
                     max_tag = prev_tag
-            viterbi_list.append((max_tag, score))
+            viterbi_list.append((max_tag, max_score))  # Use 'max_score' instead of 'score'
         viterbi_matrix.append(viterbi_list)
-    # termination step
+
+    # Termination step
     tags = [STOP] + tags
 
-    # calculate the max tag
+    # Calculate the max tag
     last_viterbi_list = []
     for tag in tagset:
         stop_score = score(STOP, tag, input_length - 1)
         prev_score = viterbi_matrix[-1][tagset.index(tag)][1]
-        score = stop_score + prev_score
-        last_viterbi_list.append((tag, score))
-    max_tag, _ = max(last_viterbi_list, key=lambda tuple: tuple[1])
+        final_score = stop_score + prev_score  # Use 'final_score' instead of 'score'
+        last_viterbi_list.append((tag, final_score))
+    max_tag, _ = max(last_viterbi_list, key=lambda x: x[1])
 
     tags = backtrack(viterbi_matrix, tagset, max_tag) + [max_tag] + tags
     return tags
