@@ -1,7 +1,8 @@
 import random
+import time
+from collections import defaultdict
 from conlleval import evaluate as conllevaluate
 
-directory = 'data'
 random.seed(1234)
 START = '<START>'
 STOP = '<STOP>'
@@ -109,48 +110,33 @@ def compute_features(tag_seq, input_length, features):
     # "xi=fight^yi=VBD": 1,
     # "yi-1=TO^yi=VBD": 1}
 
-def sgd(training_size, epochs, gradient, parameters, training_observer, step_size=1.0):
+'''
+def sgd(training_size, epochs, gradient, parameters, training_observer):
     """
-    Stochastic Gradient Descent (SGD) with early stopping.
+    Stochastic gradient descent
+    :param training_size: int. Number of examples in the training set
+    :param epochs: int. Number of epochs to run SGD for
+    :param gradient: func from index (int) in range(training_size) to a FeatureVector of the gradient
+    :param parameters: FeatureVector.  Initial parameters.  Should be updated while training
+    :param training_observer: func that takes epoch and parameters.  You can call this function at the end of each
+           epoch to evaluate on a dev set and write out the model parameters for early stopping.
+    :return: final parameters
+    """
+    # Look at the FeatureVector object.  You'll want to use the function times_plus_equal to update the
+    # parameters.
+    # To implement early stopping you can call the function training_observer at the end of each epoch.
+    return
+'''
+class Optimizer:
+    def __init__(self, algorithm="sgd", step_size=1.0):
+        self.algorithm = algorithm.lower()
+        self.step_size = step_size
     
-    :param training_size: int - Number of training examples.
-    :param epochs: int - Number of epochs.
-    :param gradient: function - Computes gradient for a given example index.
-    :param parameters: FeatureVector - Model parameters to update.
-    :param training_observer: function - Evaluates F1-score & handles early stopping.
-    :param step_size: float - Learning rate.
-    :return: FeatureVector - Updated parameters.
-    """
-    best_f1 = float("-inf")
-    early_stop_counter = 0
-    best_parameters = FeatureVector({})
-
-    for epoch in range(epochs):
-        indices = list(range(training_size))
-        random.shuffle(indices)  # Shuffle examples each epoch
-
-        for i in indices:
-            grad = gradient(i)  # Compute gradient
-            parameters.times_plus_equal(step_size, grad)  # Update parameters
-
-        # Evaluate performance
-        f1_score = training_observer(epoch, parameters)
-        print(f"Epoch {epoch + 1}: F1 = {f1_score}")
-
-        # Early Stopping Logic
-        if f1_score > best_f1:
-            best_f1 = f1_score
-            early_stop_counter = 0
-            best_parameters = FeatureVector({})
-            best_parameters.times_plus_equal(1, parameters)
+    def update(self, parameters, gradient):
+        if self.algorithm == "sgd":
+            parameters.times_plus_equal(self.step_size, gradient)
         else:
-            early_stop_counter += 1
-
-        if early_stop_counter >= EARLY_STOPPING_LIMIT:
-            print(f"Stopping early at epoch {epoch + 1}")
-            return best_parameters
-
-    return best_parameters
+            raise ValueError("Unsupported optimization algorithm")
 
 def train(data, feature_names, tagset, epochs):
     """
@@ -248,7 +234,8 @@ def read_data(filename):
     :return: Array of dictionaries.  Each dictionary has the format returned by the make_data_point function.
     """
     data = []
-    with open(filename, 'r') as f:
+    filepath = "data/" + filename
+    with open(filepath, 'r') as f:
         sent = []
         for line in f.readlines():
             if line.strip():
