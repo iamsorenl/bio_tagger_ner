@@ -109,22 +109,48 @@ def compute_features(tag_seq, input_length, features):
     # "xi=fight^yi=VBD": 1,
     # "yi-1=TO^yi=VBD": 1}
 
-def sgd(training_size, epochs, gradient, parameters, training_observer):
+def sgd(training_size, epochs, gradient, parameters, training_observer, step_size=1.0):
     """
-    Stochastic gradient descent
-    :param training_size: int. Number of examples in the training set
-    :param epochs: int. Number of epochs to run SGD for
-    :param gradient: func from index (int) in range(training_size) to a FeatureVector of the gradient
-    :param parameters: FeatureVector.  Initial parameters.  Should be updated while training
-    :param training_observer: func that takes epoch and parameters.  You can call this function at the end of each
-           epoch to evaluate on a dev set and write out the model parameters for early stopping.
-    :return: final parameters
+    Stochastic Gradient Descent (SGD) with early stopping.
+    
+    :param training_size: int - Number of training examples.
+    :param epochs: int - Number of epochs.
+    :param gradient: function - Computes gradient for a given example index.
+    :param parameters: FeatureVector - Model parameters to update.
+    :param training_observer: function - Evaluates F1-score & handles early stopping.
+    :param step_size: float - Learning rate.
+    :return: FeatureVector - Updated parameters.
     """
-    # Look at the FeatureVector object.  You'll want to use the function times_plus_equal to update the
-    # parameters.
-    # To implement early stopping you can call the function training_observer at the end of each epoch.
-    return
+    best_f1 = float("-inf")
+    early_stop_counter = 0
+    best_parameters = FeatureVector({})
 
+    for epoch in range(epochs):
+        indices = list(range(training_size))
+        random.shuffle(indices)  # Shuffle examples each epoch
+
+        for i in indices:
+            grad = gradient(i)  # Compute gradient
+            parameters.times_plus_equal(step_size, grad)  # Update parameters
+
+        # Evaluate performance
+        f1_score = training_observer(epoch, parameters)
+        print(f"Epoch {epoch + 1}: F1 = {f1_score}")
+
+        # Early Stopping Logic
+        if f1_score > best_f1:
+            best_f1 = f1_score
+            early_stop_counter = 0
+            best_parameters = FeatureVector({})
+            best_parameters.times_plus_equal(1, parameters)
+        else:
+            early_stop_counter += 1
+
+        if early_stop_counter >= EARLY_STOPPING_LIMIT:
+            print(f"Stopping early at epoch {epoch + 1}")
+            return best_parameters
+
+    return best_parameters
 
 def train(data, feature_names, tagset, epochs):
     """
@@ -232,6 +258,17 @@ def read_data(filename):
                 sent = []
         data.append(make_data_point(sent))
 
+    return data
+
+def read_gazetteer():
+    """
+    Reads the gazetteer file and returns a list of all the words in the gazetteer
+    :return: List of Strings
+    """
+    data = list()
+    with open("data/gazetteer.txt", "r") as f:
+        for line in f.readlines():
+            data += line.split()[1:]
     return data
 
 def write_predictions(out_filename, all_inputs, parameters, feature_names, tagset):
@@ -362,6 +399,38 @@ def main_train():
 
     return
 
+def add_features(feats, key):
+    feats.times_plus_equal(1, FeatureVector({key: 1}))
+
+def get_char_shape(char):
+    encoding = ord(char)
+    if encoding >= ord("a") and encoding <= ord("z"):
+        return "a"
+    if encoding >= ord("A") and encoding <= ord("Z"):
+        return "A"
+    if encoding >= ord("0") and encoding <= ord("9"):
+        return "d"
+    return char
+
+def get_word_shape(word):
+    shape = ""
+    for c in word:
+        shape += get_char_shape(c)
+    return shape
+
+def is_gazetteer(word):
+    gazetteer = read_gazetteer()
+    if word in gazetteer:
+        return "True"
+    return "False"
+
+def is_capital(word):
+    if len(word) == 0:
+        return "False"
+    c = ord(word[0])
+    if c >= ord("A") and c <= ord("Z"):
+        return "True"
+    return "False"
 
 class Features(object):
     def __init__(self, inputs, feature_names):
@@ -387,12 +456,77 @@ class Features(object):
         :return: FeatureVector
         """
         feats = FeatureVector({})
-        if 'tag' in self.feature_names:
-            feats.times_plus_equal(1, FeatureVector({'t='+cur_tag: 1}))
-        if 'prev_tag' in self.feature_names:
-            feats.times_plus_equal(1, FeatureVector({'ti='+cur_tag+"+ti-1="+pre_tag: 1}))
-        if 'current_word' in self.feature_names:
-            feats.times_plus_equal(1, FeatureVector({'t='+cur_tag+'+w='+self.inputs['tokens'][i]: 1}))
+        cur_word = self.inputs["tokens"][i]
+        pos_tag = self.inputs["pos"][i]
+        is_last = len(self.inputs["tokens"]) - 1 == i
+        # Feature-1: Current word(Wi)
+        if "current_word" in self.feature_names:
+            key = f"Wi={cur_word}+Ti={cur_tag}"
+            add_features(feats, key)
+        # Feature-2: Previous Tag(Ti-1)
+        if "prev_tag" in self.feature_names:
+            key = f"Ti-1={pre_tag}+Ti={cur_tag}"
+            add_features(feats, key)
+        # Feature-3: Lowercased Word(Oi)
+        if "lowercase" in self.feature_names:
+            key = f"Oi={cur_word.lower()}+Ti={cur_tag}"
+            add_features(feats, key)
+        # Feature-4: Current POS Tag(Pi)
+        if "pos_tag" in self.feature_names:
+            key = f"Pi={pos_tag}+Ti={cur_tag}"
+            add_features(feats, key)
+        # Feature-5: Shape of Current Word(Si)
+        if "word_shape" in self.feature_names:
+            word_shape = get_word_shape(cur_word)
+            key = f"Si={word_shape}+Ti={cur_tag}"
+            add_features(feats, key)
+        # Feature-6: (1-4 for prev + for next)
+        if "feats_prev_and_next" in self.feature_names:
+            prev_word = self.inputs["tokens"][i - 1]
+            prev_pos = self.inputs["pos"][i - 1]
+            prev_1 = f"Wi-1={prev_word}+Ti={cur_tag}"
+            prev_3 = f"Oi-1={prev_word.lower()}+Ti={cur_tag}"
+            prev_4 = f"Pi-1={prev_pos}+Ti={cur_tag}"
+            add_features(feats, prev_1)
+            add_features(feats, prev_3)
+            add_features(feats, prev_4)
+            if not is_last:
+                next_word = self.inputs["tokens"][i + 1]
+                next_pos = self.inputs["pos"][i + 1]
+                next_1 = f"Wi+1={next_word}+Ti={cur_tag}"
+                next_3 = f"Oi+1={next_word.lower()}+Ti={cur_tag}"
+                next_4 = f"Pi+1={next_pos}+Ti={cur_tag}"
+                add_features(feats, next_1)
+                add_features(feats, next_3)
+                add_features(feats, next_4)
+        # Feature-7: 1,3,4 conjoined with Previous Tag (pre_tag)
+        if "feat_conjoined" in self.feature_names:
+            conjoined_1 = f"Wi={cur_word}+Ti-1={pre_tag}+Ti={cur_tag}"
+            conjoined_3 = f"Oi={cur_word.lower()}+Ti-1={pre_tag}+Ti={cur_tag}"
+            conjoined_4 = f"Pi={pos_tag}+Ti-1={pre_tag}+Ti={cur_tag}"
+            add_features(feats, conjoined_1)
+            add_features(feats, conjoined_3)
+            add_features(feats, conjoined_4)
+        # Feature-8: Prefix for Current word with lenhth k where k=1,2,3,4
+        if "prefix_k" in self.feature_names:
+            for k in range(4):
+                if k > len(cur_word):
+                    break
+                prefix = cur_word[: k + 1]
+                key = f"PREi={prefix}+Ti={cur_tag}"
+                add_features(feats, key)
+        # Feature-9: Gazetteer (GAZi)
+        if "gazetteer" in self.feature_names:
+            key = f"GAZi={is_gazetteer(cur_word)}+Ti={cur_tag}"
+            add_features(feats, key)
+        # Feature-10: Is capital (CAPi)
+        if "capital" in self.feature_names:
+            key = f"CAPi={is_capital(cur_word)}+Ti={cur_tag}"
+            add_features(feats, key)
+        # Feature-11: Position of the current word (indexed from 1)
+        if "position" in self.feature_names:
+            key = f"POSi={i+1}+Ti={cur_tag}"
+            add_features(feats, key)
         return feats
 
 class FeatureVector(object):
