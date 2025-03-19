@@ -110,7 +110,6 @@ def compute_features(tag_seq, input_length, features):
     # "xi=fight^yi=VBD": 1,
     # "yi-1=TO^yi=VBD": 1}
 
-'''
 def sgd(training_size, epochs, gradient, parameters, training_observer):
     """
     Stochastic gradient descent
@@ -126,17 +125,6 @@ def sgd(training_size, epochs, gradient, parameters, training_observer):
     # parameters.
     # To implement early stopping you can call the function training_observer at the end of each epoch.
     return
-'''
-class Optimizer:
-    def __init__(self, algorithm="sgd", step_size=1.0):
-        self.algorithm = algorithm.lower()
-        self.step_size = step_size
-    
-    def update(self, parameters, gradient):
-        if self.algorithm == "sgd":
-            parameters.times_plus_equal(self.step_size, gradient)
-        else:
-            raise ValueError("Unsupported optimization algorithm")
 
 def train(data, feature_names, tagset, epochs):
     """
