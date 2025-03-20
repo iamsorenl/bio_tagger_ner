@@ -1,5 +1,7 @@
 import random
 from conlleval import evaluate as conllevaluate
+import numpy as np
+from tqdm import tqdm
 
 random.seed(1234)
 START = '<START>'
@@ -110,14 +112,7 @@ def compute_features(tag_seq, input_length, features):
 
 def sgd(training_size, epochs, gradient, parameters, training_observer, patience=EARLY_STOPPING_PATIENCE):
     """
-    Stochastic gradient descent with early stopping
-    :param training_size: int. Number of examples in the training set
-    :param epochs: int. Number of epochs to run SGD for
-    :param gradient: func from index (int) in range(training_size) to a FeatureVector of the gradient
-    :param parameters: FeatureVector.  Initial parameters.  Should be updated while training
-    :param training_observer: func that takes epoch and parameters. Used for early stopping.
-    :param patience: int. Number of epochs to wait before stopping if F1 does not improve.
-    :return: final parameters
+    Stochastic gradient descent with early stopping and tqdm progress bar.
     """
     step_size = 1.0  # Learning rate
     best_f1 = 0.0  # Track best F1-score
@@ -128,9 +123,12 @@ def sgd(training_size, epochs, gradient, parameters, training_observer, patience
         indices = list(range(training_size))
         random.shuffle(indices)  # Shuffle data each epoch
 
-        for i in indices:
-            grad = gradient(i)  # Compute gradient
-            parameters.times_plus_equal(-step_size, grad)  # Update parameters
+        # Show progress bar for each epoch
+        with tqdm(total=len(indices), desc=f"Epoch {epoch+1}/{epochs}", unit="batch") as pbar:
+            for i in indices:
+                grad = gradient(i)  # Compute gradient
+                parameters.times_plus_equal(-step_size, grad)  # Update parameters
+                pbar.update(1)  # Update progress bar
 
         # Evaluate after each epoch
         f1 = training_observer(epoch, parameters)
@@ -148,6 +146,47 @@ def sgd(training_size, epochs, gradient, parameters, training_observer, patience
             break
 
     return best_params  # Return best parameters instead of last trained
+
+def adagrad_train(training_size, epochs, gradient, parameters, training_observer, patience=EARLY_STOPPING_PATIENCE):
+    """
+    Adagrad training with early stopping and tqdm progress bar.
+    """
+    step_size = 1.0  # Learning rate (Adagrad uses step size 1)
+    best_f1 = 0.0  # Track best F1-score
+    best_params = FeatureVector(parameters.fdict.copy())  # Store best parameters
+    no_improve_count = 0  # Track epochs without improvement
+    squared_gradients = FeatureVector({})  # Store sum of squared gradients for each feature
+
+    for epoch in range(epochs):
+        indices = list(range(training_size))
+        random.shuffle(indices)  # Shuffle data each epoch
+
+        # Show progress bar for each epoch
+        with tqdm(total=len(indices), desc=f"Epoch {epoch+1}/{epochs}", unit="batch") as pbar:
+            for i in indices:
+                grad = gradient(i)  # Compute gradient
+                for key, value in grad.fdict.items():
+                    squared_gradients.fdict[key] = squared_gradients.fdict.get(key, 0) + value ** 2
+                    adjusted_step = step_size / (np.sqrt(squared_gradients.fdict[key]) + 1e-8)
+                    parameters.fdict[key] = parameters.fdict.get(key, 0) - adjusted_step * value  # Update weights
+                pbar.update(1)  # Update progress bar
+
+        # Evaluate after each epoch
+        f1 = training_observer(epoch, parameters)
+
+        # Early stopping check
+        if f1 > best_f1:
+            best_f1 = f1
+            best_params = FeatureVector(parameters.fdict.copy())  # Save best parameters
+            no_improve_count = 0  # Reset count
+        else:
+            no_improve_count += 1
+
+        if no_improve_count >= patience:
+            print(f"Early stopping triggered after {epoch+1} epochs. Best F1: {best_f1:.2f}")
+            return best_params
+
+    return best_params
 
 
 def train(data, feature_names, tagset, epochs):
@@ -200,7 +239,10 @@ def train(data, feature_names, tagset, epochs):
         parameters.write_to_file('model.iter'+str(epoch))
         return f1
 
-    return sgd(len(data), epochs, perceptron_gradient, parameters, training_observer)
+    
+    return sgd(len(data), epochs, perceptron_gradient, parameters, training_observer) # Use this for SGD
+    #return adagrad_train(len(data), epochs, perceptron_gradient, parameters, training_observer) # use for Adagrad
+    #return structured_svm_train(len(data), epochs, perceptron_gradient, parameters, training_observer) # use for structured SVM
 
 
 def predict(inputs, input_len, parameters, feature_names, tagset):
@@ -342,7 +384,6 @@ def test_decoder():
     print('Max score should be = 14')
     print('Max score = '+str(compute_score(predicted_tag_seq, 4, score)))
 
-
 def main_predict(data_filename, model_filename):
     """
     Main function to make predictions.
@@ -356,13 +397,13 @@ def main_predict(data_filename, model_filename):
     parameters.read_from_file(model_filename)
 
     tagset = ['B-PER', 'B-LOC', 'B-ORG', 'B-MISC', 'I-PER', 'I-LOC', 'I-ORG', 'I-MISC', 'O']
-    feature_names = ['tag', 'prev_tag', 'current_word']
+    feature_names = ['tag', 'prev_tag', 'current_word', 'lowercase', 'pos_tag', 'word_shape', 
+                 'feats_prev_and_next', 'feat_conjoined', 'prefix_k', 'gazetteer', 'capital', 'position']
 
     write_predictions(data_filename+'.out', data, parameters, feature_names, tagset)
     evaluate(data, parameters, feature_names, tagset)
 
     return
-
 
 def main_train():
     """
@@ -370,22 +411,30 @@ def main_train():
     :return: None
     """
     print('Reading training data')
-    train_data = read_data('ner.train')
+    #train_data = read_data('ner.train')
     #train_data = read_data('ner.train')[1:1] # if you want to train on just one example
+    train_data = read_data('ner.train')[:300] # train on first 1000 examples
 
     tagset = ['B-PER', 'B-LOC', 'B-ORG', 'B-MISC', 'I-PER', 'I-LOC', 'I-ORG', 'I-MISC', 'O']
-    feature_names = ['tag', 'prev_tag', 'current_word']
+    # feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag'] # first 4 features
+    feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag', 'word_shape', 
+     'feats_prev_and_next', 'feat_conjoined', 'prefix_k', 'gazetteer', 'capital', 'position']
 
     print('Training...')
     parameters = train(train_data, feature_names, tagset, epochs=EPOCHS)
     print('Training done')
-    dev_data = read_data('ner.dev')
+    
+    #dev_data = read_data('ner.dev')
+    dev_data = read_data('ner.dev')[:50]
     evaluate(dev_data, parameters, feature_names, tagset)
-    test_data = read_data('ner.test')
+    #test_data = read_data('ner.test')
+    test_data = read_data('ner.test')[:50]
     evaluate(test_data, parameters, feature_names, tagset)
+    
     parameters.write_to_file('model')
 
     return
+
 ###############################################################################################################
 '''
 Functions for feature class
@@ -582,3 +631,117 @@ class FeatureVector(object):
             for line in f.readlines():
                 txt = line.split()
                 self.fdict[txt[0]] = float(txt[1])
+
+def structured_svm_train(training_size, epochs, gradient, parameters, training_observer, step_size, reg_strength):
+    """
+    Structured SVM training with early stopping, cost-augmented decoding, and L2 regularization.
+    """
+    best_f1 = 0.0
+    best_params = FeatureVector(parameters.fdict.copy())
+    no_improve_count = 0
+
+    for epoch in range(epochs):
+        indices = list(range(training_size))
+        random.shuffle(indices)
+
+        with tqdm(total=len(indices), desc=f"Epoch {epoch+1}/{epochs}", unit="batch") as pbar:
+            for i in indices:
+                grad = gradient(i)
+                # Apply L2 Regularization
+                for key in parameters.fdict:
+                    parameters.fdict[key] -= step_size * reg_strength * parameters.fdict[key]
+                parameters.times_plus_equal(-step_size, grad)
+                pbar.update(1)
+
+        # Evaluate model
+        f1 = training_observer(epoch, parameters)
+
+        if f1 > best_f1:
+            best_f1 = f1
+            best_params = FeatureVector(parameters.fdict.copy())
+            no_improve_count = 0
+        else:
+            no_improve_count += 1
+
+        if no_improve_count >= EARLY_STOPPING_PATIENCE:
+            print(f"Early stopping triggered at epoch {epoch+1}. Best F1: {best_f1:.2f}")
+            break
+
+    return best_params
+
+def train_structured_svm(data, feature_names, tagset, epochs, step_size=1.0, reg_strength=0.1):
+    """
+    Structured SVM training with early stopping, cost-augmented decoding, and L2 regularization.
+    """
+    parameters = FeatureVector({})
+
+    def structured_svm_gradient(i):
+        inputs = data[i]
+        input_len = len(inputs['tokens'])
+        gold_labels = inputs['gold_tags']
+        features = Features(inputs, feature_names)
+
+        def score(cur_tag, pre_tag, i):
+            return parameters.dot_product(features.compute_features(cur_tag, pre_tag, i))
+
+        # Cost-augmented decoding
+        tags = decode_cost_augmented(input_len, tagset, score, gold_labels)
+        fvector = compute_features(tags, input_len, features)
+        fvector.times_plus_equal(-1, compute_features(gold_labels, input_len, features))
+        return fvector
+
+    def training_observer(epoch, parameters):
+        dev_data = read_data('ner.dev')[:500]
+        (_, _, f1) = evaluate(dev_data, parameters, feature_names, tagset)
+        parameters.write_to_file(f'model_structured_svm.iter{epoch}')
+        return f1
+
+    return structured_svm_train(len(data), epochs, structured_svm_gradient, parameters, training_observer, step_size, reg_strength)
+
+def decode_cost_augmented(input_length, tagset, score, gold_tags=None):
+    """
+    Viterbi decoding with cost-augmented decoding for Structured SVM.
+    If `gold_tags` is provided, it includes a Hamming loss term in the decoding.
+    """
+    tags = []
+    viterbi_matrix = []
+
+    # Initial step
+    initial_list = []
+    for tag in tagset:
+        tag_score = score(tag, START, 1)
+        if gold_tags:
+            tag_score += 10 if tag != gold_tags[1] else 0  # Cost augmentation
+        initial_list.append((START, tag_score))
+    viterbi_matrix.append(initial_list)
+
+    # Recursion step
+    for t in range(2, input_length - 1):
+        viterbi_list = []
+        for tag in tagset:
+            max_tag = None
+            max_score = float("-inf")
+            for prev_tag in tagset:
+                last_viterbi_list = viterbi_matrix[t - 2]
+                prev_tag_idx = tagset.index(prev_tag)
+                last_score = last_viterbi_list[prev_tag_idx][1]
+                tag_score = score(tag, prev_tag, t) + last_score
+                if gold_tags:
+                    tag_score += 10 if tag != gold_tags[t] else 0  # Cost-augmented loss
+                if tag_score > max_score:
+                    max_score = tag_score
+                    max_tag = prev_tag
+            viterbi_list.append((max_tag, max_score))
+        viterbi_matrix.append(viterbi_list)
+
+    # Termination step
+    last_viterbi_list = []
+    for tag in tagset:
+        stop_score = score(STOP, tag, input_length - 1)
+        prev_score = viterbi_matrix[-1][tagset.index(tag)][1]
+        final_score = stop_score + prev_score
+        last_viterbi_list.append((tag, final_score))
+    max_tag, _ = max(last_viterbi_list, key=lambda x: x[1])
+
+    tags = backtrack(viterbi_matrix, tagset, max_tag) + [max_tag] + [STOP]
+    return tags
