@@ -332,12 +332,15 @@ def evaluate(data, parameters, feature_names, tagset):
     :param tagset: Array of Strings.  The list of tags.
     :return: Tuple of (prec, rec, f1)
     """
-    all_gold_tags = [ ]
-    all_predicted_tags = [ ]
-    for inputs in data:
-        all_gold_tags.extend(inputs['gold_tags'][1:-1])  # deletes <START> and <STOP>
+    all_gold_tags = []
+    all_predicted_tags = []
+    
+    # Wrap the loop in tqdm to show progress
+    for inputs in tqdm(data, desc="Evaluating", unit="sentence"):
+        all_gold_tags.extend(inputs['gold_tags'][1:-1])  # Deletes <START> and <STOP>
         input_len = len(inputs['tokens'])
-        all_predicted_tags.extend(predict(inputs, input_len, parameters, feature_names, tagset)[1:-1]) # deletes <START> and <STOP>
+        all_predicted_tags.extend(predict(inputs, input_len, parameters, feature_names, tagset)[1:-1]) # Deletes <START> and <STOP>
+
     return conllevaluate(all_gold_tags, all_predicted_tags)
 
 def test_decoder():
@@ -413,7 +416,7 @@ def main_train():
     print('Reading training data')
     #train_data = read_data('ner.train')
     #train_data = read_data('ner.train')[1:1] # if you want to train on just one example
-    train_data = read_data('ner.train')[:300] # train on first 1000 examples
+    train_data = read_data('ner.train')[:50] # train on first 1000 examples
 
     tagset = ['B-PER', 'B-LOC', 'B-ORG', 'B-MISC', 'I-PER', 'I-LOC', 'I-ORG', 'I-MISC', 'O']
     # feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag'] # first 4 features
@@ -425,10 +428,10 @@ def main_train():
     print('Training done')
     
     #dev_data = read_data('ner.dev')
-    dev_data = read_data('ner.dev')[:50]
+    dev_data = read_data('ner.dev')[:10]
     evaluate(dev_data, parameters, feature_names, tagset)
     #test_data = read_data('ner.test')
-    test_data = read_data('ner.test')[:50]
+    test_data = read_data('ner.test')[:10]
     evaluate(test_data, parameters, feature_names, tagset)
     
     parameters.write_to_file('model')
