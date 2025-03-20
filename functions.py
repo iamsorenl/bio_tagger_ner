@@ -5,6 +5,7 @@ random.seed(1234)
 START = '<START>'
 STOP = '<STOP>'
 EPOCHS = 10
+EARLY_STOPPING_PATIENCE = 3
 
 def backtrack(viterbi_matrix, tagset, max_tag):
     tags = []
@@ -107,21 +108,21 @@ def compute_features(tag_seq, input_length, features):
     # "xi=fight^yi=VBD": 1,
     # "yi-1=TO^yi=VBD": 1}
 
-def sgd(training_size, epochs, gradient, parameters, training_observer):
+def sgd(training_size, epochs, gradient, parameters, training_observer, patience=EARLY_STOPPING_PATIENCE):
     """
-    Stochastic gradient descent
+    Stochastic gradient descent with early stopping
     :param training_size: int. Number of examples in the training set
     :param epochs: int. Number of epochs to run SGD for
     :param gradient: func from index (int) in range(training_size) to a FeatureVector of the gradient
     :param parameters: FeatureVector.  Initial parameters.  Should be updated while training
-    :param training_observer: func that takes epoch and parameters.  You can call this function at the end of each
-           epoch to evaluate on a dev set and write out the model parameters for early stopping.
+    :param training_observer: func that takes epoch and parameters. Used for early stopping.
+    :param patience: int. Number of epochs to wait before stopping if F1 does not improve.
     :return: final parameters
     """
-    # Look at the FeatureVector object.  You'll want to use the function times_plus_equal to update the
-    # parameters.
-    # To implement early stopping you can call the function training_observer at the end of each epoch.
     step_size = 1.0  # Learning rate
+    best_f1 = 0.0  # Track best F1-score
+    best_params = FeatureVector(parameters.fdict.copy())  # Store best parameters
+    no_improve_count = 0  # Track epochs without improvement
 
     for epoch in range(epochs):
         indices = list(range(training_size))
@@ -131,9 +132,22 @@ def sgd(training_size, epochs, gradient, parameters, training_observer):
             grad = gradient(i)  # Compute gradient
             parameters.times_plus_equal(-step_size, grad)  # Update parameters
 
-        training_observer(epoch, parameters)  # Evaluate each epoch
+        # Evaluate after each epoch
+        f1 = training_observer(epoch, parameters)
 
-    return parameters
+        # Early stopping check
+        if f1 > best_f1:
+            best_f1 = f1
+            best_params = FeatureVector(parameters.fdict.copy())  # Save best parameters
+            no_improve_count = 0  # Reset count
+        else:
+            no_improve_count += 1
+
+        if no_improve_count >= patience:
+            print(f"Early stopping triggered after {epoch+1} epochs. Best F1: {best_f1:.2f}")
+            break
+
+    return best_params  # Return best parameters instead of last trained
 
 
 def train(data, feature_names, tagset, epochs):
