@@ -4,6 +4,7 @@ from conlleval import evaluate as conllevaluate
 random.seed(1234)
 START = '<START>'
 STOP = '<STOP>'
+EPOCHS = 10
 
 def backtrack(viterbi_matrix, tagset, max_tag):
     tags = []
@@ -120,7 +121,19 @@ def sgd(training_size, epochs, gradient, parameters, training_observer):
     # Look at the FeatureVector object.  You'll want to use the function times_plus_equal to update the
     # parameters.
     # To implement early stopping you can call the function training_observer at the end of each epoch.
-    return
+    step_size = 1.0  # Learning rate
+
+    for epoch in range(epochs):
+        indices = list(range(training_size))
+        random.shuffle(indices)  # Shuffle data each epoch
+
+        for i in indices:
+            grad = gradient(i)  # Compute gradient
+            parameters.times_plus_equal(-step_size, grad)  # Update parameters
+
+        training_observer(epoch, parameters)  # Evaluate each epoch
+
+    return parameters
 
 
 def train(data, feature_names, tagset, epochs):
@@ -350,7 +363,7 @@ def main_train():
     feature_names = ['tag', 'prev_tag', 'current_word']
 
     print('Training...')
-    parameters = train(train_data, feature_names, tagset, epochs=10)
+    parameters = train(train_data, feature_names, tagset, epochs=EPOCHS)
     print('Training done')
     dev_data = read_data('ner.dev')
     evaluate(dev_data, parameters, feature_names, tagset)
