@@ -233,15 +233,16 @@ def train(data, feature_names, tagset, epochs):
         :param parameters: Feature Vector.  The current parameters
         :return: Double. F1 on the development data
         """
-        dev_data = read_data('ner.dev')
+        #dev_data = read_data('ner.dev')
+        dev_data = read_data('ner.dev')[:10]
         (_, _, f1) = evaluate(dev_data, parameters, feature_names, tagset)
         write_predictions('ner.dev.out'+str(epoch), dev_data, parameters, feature_names, tagset)
         parameters.write_to_file('model.iter'+str(epoch))
         return f1
 
     
-    return sgd(len(data), epochs, perceptron_gradient, parameters, training_observer) # Use this for SGD
-    #return adagrad_train(len(data), epochs, perceptron_gradient, parameters, training_observer) # use for Adagrad
+    #return sgd(len(data), epochs, perceptron_gradient, parameters, training_observer) # Use this for SGD
+    return adagrad_train(len(data), epochs, perceptron_gradient, parameters, training_observer) # use for Adagrad
     #return structured_svm_train(len(data), epochs, perceptron_gradient, parameters, training_observer) # use for structured SVM
 
 
@@ -395,13 +396,15 @@ def main_predict(data_filename, model_filename):
     :param model_filename: String
     :return: None
     """
-    data = read_data(data_filename)
+    #data = read_data(data_filename)
+    data = read_data(data_filename)[:10]
     parameters = FeatureVector({})
     parameters.read_from_file(model_filename)
 
     tagset = ['B-PER', 'B-LOC', 'B-ORG', 'B-MISC', 'I-PER', 'I-LOC', 'I-ORG', 'I-MISC', 'O']
-    feature_names = ['tag', 'prev_tag', 'current_word', 'lowercase', 'pos_tag', 'word_shape', 
-                 'feats_prev_and_next', 'feat_conjoined', 'prefix_k', 'gazetteer', 'capital', 'position']
+    #feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag'] # first 4 features
+    feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag', 'word_shape', 
+     'feats_prev_and_next', 'feat_conjoined', 'prefix_k', 'gazetteer', 'capital', 'position']
 
     write_predictions(data_filename+'.out', data, parameters, feature_names, tagset)
     evaluate(data, parameters, feature_names, tagset)
@@ -416,15 +419,19 @@ def main_train():
     print('Reading training data')
     #train_data = read_data('ner.train')
     #train_data = read_data('ner.train')[1:1] # if you want to train on just one example
-    train_data = read_data('ner.train')[:50] # train on first 1000 examples
+    train_data = read_data('ner.train')[:50] # train on first 50 examples
 
     tagset = ['B-PER', 'B-LOC', 'B-ORG', 'B-MISC', 'I-PER', 'I-LOC', 'I-ORG', 'I-MISC', 'O']
-    # feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag'] # first 4 features
+    #feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag'] # first 4 features
     feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag', 'word_shape', 
      'feats_prev_and_next', 'feat_conjoined', 'prefix_k', 'gazetteer', 'capital', 'position']
 
     print('Training...')
-    parameters = train(train_data, feature_names, tagset, epochs=EPOCHS)
+    #parameters = train(train_data, feature_names, tagset, epochs=EPOCHS)
+
+    # step_sizes = [0.1, 0.5, 1.0]
+    # reg_strengths = [0.01, 0.1, 1.0]
+    parameters = train_structured_svm(train_data, feature_names, tagset, epochs=EPOCHS, step_size=1.0, reg_strength=0.1)
     print('Training done')
     
     #dev_data = read_data('ner.dev')
@@ -694,7 +701,8 @@ def train_structured_svm(data, feature_names, tagset, epochs, step_size=1.0, reg
         return fvector
 
     def training_observer(epoch, parameters):
-        dev_data = read_data('ner.dev')[:500]
+        #dev_data = read_data('ner.dev')
+        dev_data = read_data('ner.dev')[:10]
         (_, _, f1) = evaluate(dev_data, parameters, feature_names, tagset)
         parameters.write_to_file(f'model_structured_svm.iter{epoch}')
         return f1
