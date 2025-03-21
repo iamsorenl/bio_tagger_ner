@@ -419,7 +419,7 @@ def main_train():
     print('Reading training data')
     #train_data = read_data('ner.train')
     #train_data = read_data('ner.train')[1:1] # if you want to train on just one example
-    train_data = read_data('ner.train')[:50] # train on first 50 examples
+    train_data = read_data('ner.train')[:10] # train on first 10 examples
 
     tagset = ['B-PER', 'B-LOC', 'B-ORG', 'B-MISC', 'I-PER', 'I-LOC', 'I-ORG', 'I-MISC', 'O']
     #feature_names = ['current_word', 'prev_tag', 'lowercase', 'pos_tag'] # first 4 features
@@ -435,12 +435,17 @@ def main_train():
     print('Training done')
     
     #dev_data = read_data('ner.dev')
-    dev_data = read_data('ner.dev')[:10]
+    dev_data = read_data('ner.dev')[:5]
     evaluate(dev_data, parameters, feature_names, tagset)
     #test_data = read_data('ner.test')
-    test_data = read_data('ner.test')[:10]
+    test_data = read_data('ner.test')[:5]
     evaluate(test_data, parameters, feature_names, tagset)
     
+    # for svm out
+    # Write final predictions on dev and test using best model
+    write_predictions('ner.dev.out', dev_data, parameters, feature_names, tagset)
+    write_predictions('ner.test.out', test_data, parameters, feature_names, tagset)
+
     parameters.write_to_file('model')
 
     return
@@ -701,9 +706,9 @@ def train_structured_svm(data, feature_names, tagset, epochs, step_size=1.0, reg
         return fvector
 
     def training_observer(epoch, parameters):
-        #dev_data = read_data('ner.dev')
-        dev_data = read_data('ner.dev')[:10]
+        dev_data = read_data('ner.dev')[:5]
         (_, _, f1) = evaluate(dev_data, parameters, feature_names, tagset)
+        write_predictions(f'ner.dev.svm.out{epoch}', dev_data, parameters, feature_names, tagset)
         parameters.write_to_file(f'model_structured_svm.iter{epoch}')
         return f1
 
