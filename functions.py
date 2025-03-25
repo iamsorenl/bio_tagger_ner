@@ -427,11 +427,13 @@ def main_train():
      'feats_prev_and_next', 'feat_conjoined', 'prefix_k', 'gazetteer', 'capital', 'position']
 
     print('Training...')
+    
     #parameters = train(train_data, feature_names, tagset, epochs=EPOCHS)
 
-    # step_sizes = [0.1, 0.5, 1.0]
-    # reg_strengths = [0.01, 0.1, 1.0]
-    parameters = train_structured_svm(train_data, feature_names, tagset, epochs=EPOCHS, step_size=1.0, reg_strength=0.1)
+    # step_sizes used 0.1, 0.5, 1.0
+    # reg_strengths used 0.01, 0.1, 1.0
+    parameters = train_structured_svm(train_data, feature_names, tagset, epochs=EPOCHS, step_size=0.5, reg_strength=0.01)
+    
     print('Training done')
     
     #dev_data = read_data('ner.dev')
